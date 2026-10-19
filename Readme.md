@@ -41,7 +41,7 @@ cyber_rag/
 ├── requirements.txt
 └── Readme.md
 
-Note: the dataset PDFs are not included in this repository. The built index in outputs/index/ already contains their text, so ask.py, the API and evaluate.py work right after cloning. Re-running ingest rebuilds the index from what is in dataset/: put the PDFs (or your own) there first, otherwise only the Thai OCR text is indexed.
+Note: this repository contains no documents and no built index. After cloning, put your PDFs into dataset/ and run "python -m scripts.ingest" before asking questions. The project was developed with OWASP Top 10 (2021), MITRE ATT&CK: Design and Philosophy (2020), and Thailand's website security standard (Royal Gazette, 2025).
 
 [Requirements Installation]
 
