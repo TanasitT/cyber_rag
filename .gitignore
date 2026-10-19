@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtual environments
+.rag/
+.venv/
+venv/
+
+# Dataset PDFs are not published; their text is in outputs/index
+dataset/**/*.pdf
+dataset/**/*.PDF
+
+# Backups written by create_txt_from_pdf.py
+*.bak
+
+# Local extraction / OCR cache
+outputs/cache/
+
+# Secrets
+.env

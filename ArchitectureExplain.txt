@@ -1,0 +1,45 @@
+This project implements a Retrieval-Augmented Generation (RAG) system designed to answer cybersecurity-related questions strictly using the documents provided in the dataset directory. The system is explicitly engineered to prevent hallucination and external knowledge leakage by grounding all answers in retrieved document content.
+
+[Data Ingestion and Preprocessing]
+
+The pipeline begins by loading documents from the dataset/ folder (subfolders included). Two file types are supported:
+
+-PDF files: These are read page by page using a PDF parser. Each page is treated as a distinct semantic unit. Pages with no usable text are detected automatically and read with OCR (Tesseract by default, or an OpenAI vision model): pages with almost no text (scans) and pages whose text is garbled, meaning too few letters/digits compared to symbols. Garbled text comes from fonts without a correct character map, as in the Thai standard in the dataset. Extracted and OCR'd text is cached per file, keyed by the file's content and the OCR settings.
+-Text files (.txt): These are assumed to be OCR-generated files and are split using explicit page markers (--- Page X ---), preserving original page boundaries. A file without markers is a single page. If X_ocr.txt exists next to X.pdf, the text file is used and the PDF is skipped.
+
+All stored text is normalized for Thai: sara am written as two characters (ํ + า, typical OCR output) is rejoined into ำ, private-use glyphs from Thai fonts are mapped back to real characters, and mark order and zero-width characters are fixed.
+
+This design ensures that each chunk corresponds exactly to one original page.
+
+[Chunking Data]
+
+Each page becomes a single chunk containing:
+
+-Document identifier
+-Page number
+-Page text
+
+This approach preserves document structure, avoids splitting sentences or tables, and enables clear citations such as dataset/owasp-top-10.pdf#page_3.
+
+A manifest of the indexed files (size and modification time) is saved with the index, so ask.py and the API can warn when files were added, changed or removed since the last build.
+
+[Retrieval]
+
+When a user submits a question, it is vectorized with the same TF-IDF vectorizer as the pages (words and word pairs; English and Thai stop words removed; Thai split into words with PyThaiNLP) and compared with every page by cosine similarity. The top-K most relevant chunks (pages, default 8) are retrieved. This is keyword matching, not semantic embeddings, so questions must be asked in the document's language.
+
+[Answer Generation (Constrained LLM Usage)]
+
+The retrieved chunks are passed to an openAI gpt-4o-mini language model only as numbered context blocks, along with a strict system prompt instructing the model to:
+
+-Use only the provided context
+-Avoid prior knowledge or assumptions
+-Answer in the language of the question
+-Report the numbers of the blocks its answer is based on
+-Return “Insufficient information in dataset.” if the answer is not explicitly stated
+
+The model replies in a fixed structure (answer + source ids). It functions purely as a constrained language generator, summarizing or rephrasing retrieved content without introducing new information.
+
+[Citations and Output]
+
+Citations are generated deterministically from chunk metadata for the blocks the model reported using (if it reports none, all retrieved pages are cited). Each answer is returned together with page-level citations pointing directly to the source document and page.
+If the dataset does not contain sufficient information to answer a question, the LLM refuses to answer rather than guessing; refusals are recognized even with different quoting or capitalization and are returned without citations.
