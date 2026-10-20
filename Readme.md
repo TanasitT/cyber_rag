@@ -1,193 +1,239 @@
-Cybersecurity Dataset-Only RAG System
+# Cybersecurity Dataset-Only RAG
 
-This project implements a Retrieval-Augmented Generation (RAG) system that answers cybersecurity-related questions using only documents provided in the dataset/ folder.
+A retrieval-augmented generation (RAG) system that answers cybersecurity questions **using only the documents you put in `dataset/`**, and cites the pages each answer came from.
 
-The system is designed to:
+- **No outside knowledge:** the language model may only use the retrieved pages.
+- **Page-level citations:** every answer lists the pages it is based on.
+- **Refuses when unsure:** answers `Insufficient information in dataset.` when the documents don't contain the answer.
+- **Any PDF:** text PDFs, scanned PDFs and Thai PDFs with broken fonts (via OCR).
+- **Thai support:** Thai text normalization and word segmentation for search.
 
--Prevent hallucination
--Avoid external knowledge
--Provide page-level citations for the pages the answer actually used
--Return a refusal when the dataset does not contain sufficient information
--Accept any PDF you drop into dataset/, including scanned pages and Thai PDFs (via OCR)
+> [!NOTE]
+> This repository contains **no documents and no built index**. After cloning, add your PDFs to `dataset/` and run ingest before asking questions (see [Quick start](#quick-start)).
+>
+> The project was developed with *OWASP Top 10 (2021)*, *MITRE ATT&CK: Design and Philosophy (2020)* and Thailand's website security standard (*Royal Gazette, 2025*).
 
-[Project Structure]
-cyber_rag/
-├── dataset/                       # Input documents (PDF / TXT, subfolders allowed)
-│   ├── owasp-top-10.pdf
-│   ├── mitre-attack-philosophy-2020.pdf
-│   ├── thailand-web-security-standard-2025.pdf
-│   └── thailand-web-security-standard-2025_ocr.txt   # OCR text, indexed instead of the PDF above
-│
-├── scripts/
-│   ├── ingest.py            # Build the index
-│   ├── ask.py               # CLI question answering
-│   ├── api.py               # FastAPI application
-│   ├── evaluate.py          # Writes outputs/eval_report.md
-│   ├── extract.py           # PDF page text, with automatic OCR fallback
-│   ├── thai.py              # Thai text normalization + word segmentation
-│   ├── sources.py           # Which files get indexed; out-of-date index check
-│   ├── chunking.py          # Page-based chunking
-│   ├── index.py             # TF-IDF index
-│   └── generator.py         # Constrained LLM generation + citations
-│
-├── tests/                         # Offline tests (python -m pytest)
-├── create_txt_from_pdf.py         # OCR a whole PDF into an editable _ocr.txt
-│
-├── outputs/
-│   ├── index/               # Saved index + manifest.json
-│   ├── cache/               # Extracted / OCR'd page text (safe to delete)
-│   └── eval_report.md
-│
-├── requirements.txt
-└── Readme.md
+## Requirements
 
-Note: this repository contains no documents and no built index. After cloning, put your PDFs into dataset/ and run "python -m scripts.ingest" before asking questions. The project was developed with OWASP Top 10 (2021), MITRE ATT&CK: Design and Philosophy (2020), and Thailand's website security standard (Royal Gazette, 2025).
+- Python 3.10 or newer (developed on 3.13)
+- An OpenAI API key (answers are generated with `gpt-4o-mini`)
+- *Optional, for OCR only:* [Tesseract](https://github.com/tesseract-ocr/tesseract) with Thai language data, and [Poppler](https://poppler.freedesktop.org/). See [Thai and scanned PDFs](#thai-and-scanned-pdfs).
 
-[Requirements Installation]
+## Setup
 
-Optional, only needed to OCR PDFs without usable text (scans, Thai PDFs with broken fonts; see "Thai and Scanned PDFs"):
+```bash
+git clone https://github.com/TanasitT/cyber_rag.git
+cd cyber_rag
+python -m venv .venv
+```
 
-Tesseract OCR with Thai language data
-Poppler (for PDF → image conversion; must be on PATH)
+Activate the virtual environment and install the packages:
 
-Without them everything else works; ingest skips the pages that would need OCR and says how many.
-
-[Dependencies Installation]
-
-1.Install Python packages
-
+```powershell
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+$env:OPENAI_API_KEY = "sk-..."
+```
 
-2.Set up OpenAI API Key
+```bash
+# macOS / Linux
+source .venv/bin/activate
+pip install -r requirements.txt
+export OPENAI_API_KEY="sk-..."
+```
 
-Set your API key as an environment variable:
+## Quick start
 
-PowerShell:  $env:OPENAI_API_KEY = "sk-..."
-bash:        export OPENAI_API_KEY="sk-..."
+### 1. Add documents
 
-[**Running the Project**]
+Copy your PDFs (or `.txt` files) into `dataset/`. Subfolders are fine.
 
-Step 1: Run the ingestion script:
+### 2. Build the index
 
-python -m scripts.ingest --dataset_dir dataset --index_dir outputs/index
+```bash
+python -m scripts.ingest
+```
 
-(Those are the defaults, so "python -m scripts.ingest" is enough.)
+Ingest reads every page, OCRs pages that have no usable text, and saves the index to `outputs/index/`. It prints one line per file:
 
-This will:
-
--Load every PDF / TXT file in dataset/ (subfolders included)
--Read each PDF page's text, or OCR the page when it has no usable text
--Chunk by page
--Build the TF-IDF index
--Save the index to outputs/index/
-
-It prints one line per file, for example:
-
+```text
 dataset/thailand-web-security-standard-2025.pdf: skipped, using thailand-web-security-standard-2025_ocr.txt instead
 dataset/mitre-attack-philosophy-2020.pdf: 46 pages
 dataset/owasp-top-10.pdf: 41 pages
 dataset/thailand-web-security-standard-2025_ocr.txt: 77 pages
 Indexed 164 pages from 3 files into: ...\outputs\index
+```
 
-Files that can't be read (corrupt, password-protected) are skipped with a warning; the rest are still indexed.
+Files that can't be read (corrupt or password-protected) are skipped with a warning; everything else is still indexed.
 
-Step 2: Ask Questions (CLI)
+### 3. Ask a question
 
+```bash
 python -m scripts.ask --question "What is MITRE ATT&CK, and what is its primary purpose?"
+```
 
-Options: --top_k (pages retrieved, default 8), --show_context (print the retrieved pages).
-Note: You have to ask in a language that is the same from the source file (English for English files, Thai for Thai files). Search matches words; it does not translate.
-
-Example output:
-
+```text
 QUESTION:
 What is MITRE ATT&CK, and what is its primary purpose?
 
 ANSWER:
-MITRE ATT&CK is a knowledge base that documents adversary tactics and techniques based on real-world observations. Its primary purpose is to serve as an authoritative source of information about adversarial behavior, guiding users in understanding how to defend against adversaries by categorizing their actions and relating them to defensive measures. ...
+MITRE ATT&CK is a knowledge base that documents adversary tactics and techniques based on
+real-world observations. Its primary purpose is to serve as an authoritative source of
+information about adversarial behavior, ...
 
 CITATIONS:
 - dataset/mitre-attack-philosophy-2020.pdf#page_44
 - dataset/mitre-attack-philosophy-2020.pdf#page_4
+```
 
-If the dataset does not contain the answer:
+If the documents don't contain the answer:
 
+```text
 ANSWER:
 Insufficient information in dataset.
+```
 
-Step 3: Run the FastAPI Server
+> [!IMPORTANT]
+> Ask in the language of the document: English for English documents, Thai for Thai documents. Search matches words; it does not translate.
 
-Start the API:
+### 4. Run the API (optional)
 
+```bash
 uvicorn scripts.api:app --reload
+```
 
-Open API docs at:
+Interactive docs: <http://127.0.0.1:8000/docs>
 
-http://127.0.0.1:8000/docs
+```bash
+curl -X POST http://127.0.0.1:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is the OWASP Top 10?", "top_k": 8}'
+```
 
-Example API request
-POST /ask
+```json
 {
-  "question": "What is OWASP Top 10?",
-  "top_k": 8
+  "answer": "The OWASP Top 10 is a standard awareness document for developers and web application security that represents a broad consensus about the most critical security risks to web applications.",
+  "citations": ["dataset/owasp-top-10.pdf#page_3"],
+  "used_chunks": ["dataset/owasp-top-10.pdf::page_3"]
 }
+```
 
-top_k must be between 1 and 20. Restart the server after re-running ingest; it loads the index once at startup.
+`top_k` must be between 1 and 20. The server loads the index once at startup, so restart it after re-running ingest.
 
-[Adding Your Own PDFs]
+## Options
 
-1. Copy the PDF into dataset/ (subfolders are fine).
-2. Run: python -m scripts.ingest
+**`python -m scripts.ingest`**
+
+| Option | Default | Description |
+|---|---|---|
+| `--dataset_dir` | `dataset` | Folder with PDF / TXT files (subfolders included) |
+| `--index_dir` | `outputs/index` | Where the index is saved |
+| `--cache_dir` | `outputs/cache` | Cache of extracted and OCR'd page text |
+| `--ocr_engine` | `tesseract` | `tesseract`, or `openai` to use an OpenAI vision model (sends page images to OpenAI) |
+| `--ocr_lang` | `tha+eng` | Tesseract languages |
+| `--ocr_dpi` | `400` | Render resolution for OCR (Thai tone marks are small) |
+| `--tesseract_cmd` | auto | Path to `tesseract.exe` if it isn't found automatically |
+| `--vision_model` | `gpt-4.1` | Model for `--ocr_engine openai` |
+
+**`python -m scripts.ask`**
+
+| Option | Default | Description |
+|---|---|---|
+| `--question` | *(required)* | The question |
+| `--index_dir` | `outputs/index` | Index to search |
+| `--top_k` | `8` | Number of pages retrieved and shown to the model |
+| `--show_context` | off | Also print the retrieved pages |
+
+The API reads the index from `outputs/index`, or from the `RAG_INDEX_DIR` environment variable if set.
+
+## Adding your own PDFs
+
+1. Copy the PDF into `dataset/`.
+2. Run `python -m scripts.ingest`.
 3. Restart the API server if it is running.
 
-Ingest decides page by page whether to use the PDF's text or OCR. Results are cached in outputs/cache/, so re-running ingest only processes new or changed files. If you add, change or remove files and forget to re-run ingest, ask.py and the API print a warning that the index is out of date.
+Ingest decides page by page whether to use the PDF's text or OCR. Results are cached in `outputs/cache/`, so re-running ingest only processes new or changed files. If you add, change or remove files and forget to re-run ingest, `ask` and the API warn that the index is out of date.
 
-[Thai and Scanned PDFs]
+## Thai and scanned PDFs
 
-Some PDFs have no usable text: scanned pages, or Thai PDFs whose fonts don't map glyphs to real characters. The Thai standard in dataset/ is one of these: its fonts have corrupt or missing character maps, so every PDF library extracts garbage from it. Ingest detects such pages and reads them with OCR instead.
+Some PDFs have no usable text: scanned pages, or Thai PDFs whose fonts don't map glyphs to real characters. The Thai standard used during development is one of these: its fonts have corrupt or missing character maps, so every PDF library extracts garbage from it. Ingest detects such pages and reads them with OCR instead. Without Tesseract, those pages are skipped and ingest tells you how many.
 
-Install Tesseract (Windows):
+### Installing Tesseract and Poppler
 
-winget install UB-Mannheim.TesseractOCR
+| | Tesseract (with Thai) | Poppler |
+|---|---|---|
+| **Windows** | `winget install UB-Mannheim.TesseractOCR`, then tick *Thai* under "Additional language data" in the installer | Download a [release](https://github.com/oschwartz10612/poppler-windows/releases) and add its `Library\bin` folder to `PATH` |
+| **macOS** | `brew install tesseract tesseract-lang` | `brew install poppler` |
+| **Ubuntu / Debian** | `sudo apt install tesseract-ocr tesseract-ocr-tha` | `sudo apt install poppler-utils` |
 
-Then make sure Thai language data is installed: tick Thai under "Additional language data" in the installer, or download tha.traineddata into C:\Program Files\Tesseract-OCR\tessdata. Ingest finds C:\Program Files\Tesseract-OCR\tesseract.exe automatically; for another location set TESSERACT_CMD or pass --tesseract_cmd.
+On Windows, ingest finds `C:\Program Files\Tesseract-OCR\tesseract.exe` automatically. For another location, set `TESSERACT_CMD` or pass `--tesseract_cmd`.
 
-For better Thai accuracy, download the tessdata_best models (tha.traineddata and eng.traineddata) from https://github.com/tesseract-ocr/tessdata_best into a folder and set the TESSDATA_PREFIX environment variable to that folder.
+For better Thai accuracy, download `tha.traineddata` and `eng.traineddata` from [tessdata_best](https://github.com/tesseract-ocr/tessdata_best) into a folder and set the `TESSDATA_PREFIX` environment variable to that folder.
 
-Without Tesseract, pages that need OCR are skipped and ingest tells you how many.
+> [!WARNING]
+> **OCR is not perfect for Thai.** On a test page, OpenAI vision got every tone mark right where Tesseract made several mistakes (e.g. มั่นคง read as มั้นคง), but **neither engine read Thai numerals reliably**: dates, volume and clause numbers were often wrong. Check numbers against the original PDF.
 
-OCR options for ingest:
---ocr_lang tha+eng      Tesseract languages
---ocr_dpi 400           render resolution (Thai tone marks are small)
---ocr_engine openai     use an OpenAI vision model instead of Tesseract (sends page images to OpenAI)
---vision_model gpt-4.1  model for --ocr_engine openai
+### Reviewing OCR text by hand
 
-OCR accuracy for Thai: on a test page, OpenAI vision got every tone mark right where Tesseract made several mistakes (e.g. มั่นคง read as มั้นคง), but neither engine read Thai numerals reliably: dates, volume and clause numbers were often wrong. Check numbers against the original PDF.
+```bash
+python create_txt_from_pdf.py dataset/your-document.pdf
+```
 
-Review or correct OCR text by hand:
+This writes `dataset/your-document_ocr.txt` with `--- Page N ---` markers. It accepts `--engine`, `--lang` and `--dpi`. While that file exists, ingest indexes it instead of the PDF, so you can correct OCR mistakes by editing it. An existing file is kept as `<name>_ocr.txt.<timestamp>.bak`.
 
-python create_txt_from_pdf.py dataset/thailand-web-security-standard-2025.pdf
+### Thai text processing
 
-This writes dataset/<name>_ocr.txt with "--- Page N ---" markers (it accepts the same --engine/--lang/--dpi options). While that file exists, ingest indexes it instead of the PDF. An existing file is kept as <name>_ocr.txt.<timestamp>.bak.
+All stored text is normalized:
+- sara am that OCR splits into ํ + า is rejoined into ำ
+- private-use glyphs from Thai fonts are mapped back to real characters
+- mark order and zero-width characters are fixed
 
-Thai text processing: all stored text is normalized (sara am split into ํ + า by OCR is rejoined into ำ, Thai-font private-use glyphs are mapped back, mark order and zero-width characters are fixed), and search splits Thai into words with PyThaiNLP. So ดำเนินการ matches whether a document writes it with ำ or ํา, and Thai digits match Arabic ones (๒๕๖๘ = 2568).
+Search splits Thai into words with [PyThaiNLP](https://github.com/PyThaiNLP/pythainlp). So ดำเนินการ matches whether a document writes it with ำ or ํา, and Thai digits match Arabic ones (๒๕๖๘ = 2568).
 
-[How Retrieval Works]
+## How retrieval works
 
-Retrieval is TF-IDF keyword search (words and word pairs, cosine similarity), not embeddings; the "Embed Chunks" step in diagram.png is this TF-IDF step. Because it matches words, questions must use the document's language and, ideally, its vocabulary.
+Retrieval is **TF-IDF keyword search** (words and word pairs, cosine similarity), not embeddings. Because it matches words, questions must use the document's language and, ideally, its vocabulary.
 
-The model is shown the top-k pages (numbered) and reports which ones its answer is based on; only those pages are cited. If it cites none, all retrieved pages are listed.
+The top-k pages are given to `gpt-4o-mini` as numbered context blocks, with instructions to answer only from them and to report which blocks it used. **Only those pages are cited.** If it reports none, all retrieved pages are listed.
 
-[Evaluation]
+## Project structure
 
-To generate the report, you can run the following command which will create eval_report.md
+```text
+cyber_rag/
+├── dataset/                  # Your documents (not included in this repository)
+├── scripts/
+│   ├── ingest.py             # Build the index
+│   ├── ask.py                # Command-line Q&A
+│   ├── api.py                # FastAPI app
+│   ├── evaluate.py           # Writes outputs/eval_report.md
+│   ├── extract.py            # PDF page text with automatic OCR fallback
+│   ├── thai.py               # Thai normalization and word segmentation
+│   ├── sources.py            # Which files get indexed; out-of-date index check
+│   ├── chunking.py           # One chunk per page
+│   ├── index.py              # TF-IDF index
+│   └── generator.py          # Constrained LLM answer + citations
+├── tests/                    # Offline tests
+├── outputs/
+│   ├── index/                # Built by ingest (not included)
+│   ├── cache/                # Extracted / OCR'd page text (safe to delete)
+│   └── eval_report.md        # Latest evaluation answers
+├── create_txt_from_pdf.py    # OCR a whole PDF into an editable _ocr.txt
+└── requirements.txt
+```
 
-python -m scripts.evaluate --index_dir outputs/index --out outputs/eval_report.md
+## Evaluation
 
-It asks 6 fixed questions (4 English, 2 Thai). See outputs/eval_report.md for the latest answers and citations.
+```bash
+python -m scripts.evaluate
+```
 
-[Tests]
+This asks 6 fixed questions (4 English, 2 Thai) and writes the answers and citations to [`outputs/eval_report.md`](outputs/eval_report.md).
 
+## Tests
+
+```bash
 python -m pytest
+```
 
-The tests run offline and need no API key.
+The tests run offline and need no API key. Tests that use the original dataset PDFs are skipped when those files aren't present.
