@@ -6,7 +6,7 @@ you can review and hand-correct. While <name>_ocr.txt exists, ingest uses it ins
 the PDF. An existing output file is kept as <name>_ocr.txt.<timestamp>.bak.
 
 Example:
-    python create_txt_from_pdf.py dataset/thailand-web-security-standard-2025.pdf
+    python create_txt_from_pdf.py dataset/your-document.pdf
 """
 import argparse
 from datetime import datetime

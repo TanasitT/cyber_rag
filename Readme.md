@@ -1,6 +1,6 @@
-# Cybersecurity Dataset-Only RAG
+# PDF RAG
 
-A retrieval-augmented generation (RAG) system that answers cybersecurity questions **using only the documents you put in `dataset/`**, and cites the pages each answer came from.
+A retrieval-augmented generation (RAG) system that answers questions about your own PDFs **using only the documents you put in `dataset/`**, and cites the pages each answer came from.
 
 - **No outside knowledge:** the language model may only use the retrieved pages.
 - **Page-level citations:** every answer lists the pages it is based on.
@@ -10,8 +10,6 @@ A retrieval-augmented generation (RAG) system that answers cybersecurity questio
 
 > [!NOTE]
 > This repository contains **no documents and no built index**. After cloning, add your PDFs to `dataset/` and run ingest before asking questions (see [Quick start](#quick-start)).
->
-> The project was developed with *OWASP Top 10 (2021)*, *MITRE ATT&CK: Design and Philosophy (2020)* and Thailand's website security standard (*Royal Gazette, 2025*).
 
 ## Requirements
 
@@ -22,8 +20,8 @@ A retrieval-augmented generation (RAG) system that answers cybersecurity questio
 ## Setup
 
 ```bash
-git clone https://github.com/TanasitT/cyber_rag.git
-cd cyber_rag
+git clone https://github.com/TanasitT/pdf-rag.git
+cd pdf-rag
 python -m venv .venv
 ```
 
@@ -58,11 +56,11 @@ python -m scripts.ingest
 Ingest reads every page, OCRs pages that have no usable text, and saves the index to `outputs/index/`. It prints one line per file:
 
 ```text
-dataset/thailand-web-security-standard-2025.pdf: skipped, using thailand-web-security-standard-2025_ocr.txt instead
-dataset/mitre-attack-philosophy-2020.pdf: 46 pages
-dataset/owasp-top-10.pdf: 41 pages
-dataset/thailand-web-security-standard-2025_ocr.txt: 77 pages
-Indexed 164 pages from 3 files into: ...\outputs\index
+dataset/thai-regulation.pdf: skipped, using thai-regulation_ocr.txt instead
+dataset/annual-report.pdf: 48 pages
+dataset/scanned-contract.pdf: 6 pages (0 text, 6 OCR)
+dataset/thai-regulation_ocr.txt: 77 pages
+Indexed 131 pages from 3 files into: ...\outputs\index
 ```
 
 Files that can't be read (corrupt or password-protected) are skipped with a warning; everything else is still indexed.
@@ -70,21 +68,19 @@ Files that can't be read (corrupt or password-protected) are skipped with a warn
 ### 3. Ask a question
 
 ```bash
-python -m scripts.ask --question "What is MITRE ATT&CK, and what is its primary purpose?"
+python -m scripts.ask --question "What were the main results last year?"
 ```
 
 ```text
 QUESTION:
-What is MITRE ATT&CK, and what is its primary purpose?
+What were the main results last year?
 
 ANSWER:
-MITRE ATT&CK is a knowledge base that documents adversary tactics and techniques based on
-real-world observations. Its primary purpose is to serve as an authoritative source of
-information about adversarial behavior, ...
+<an answer written only from the retrieved pages>
 
 CITATIONS:
-- dataset/mitre-attack-philosophy-2020.pdf#page_44
-- dataset/mitre-attack-philosophy-2020.pdf#page_4
+- dataset/annual-report.pdf#page_12
+- dataset/annual-report.pdf#page_13
 ```
 
 If the documents don't contain the answer:
@@ -108,14 +104,14 @@ Interactive docs: <http://127.0.0.1:8000/docs>
 ```bash
 curl -X POST http://127.0.0.1:8000/ask \
   -H "Content-Type: application/json" \
-  -d '{"question": "What is the OWASP Top 10?", "top_k": 8}'
+  -d '{"question": "What were the main results last year?", "top_k": 8}'
 ```
 
 ```json
 {
-  "answer": "The OWASP Top 10 is a standard awareness document for developers and web application security that represents a broad consensus about the most critical security risks to web applications.",
-  "citations": ["dataset/owasp-top-10.pdf#page_3"],
-  "used_chunks": ["dataset/owasp-top-10.pdf::page_3"]
+  "answer": "<an answer written only from the retrieved pages>",
+  "citations": ["dataset/annual-report.pdf#page_12"],
+  "used_chunks": ["dataset/annual-report.pdf::page_12"]
 }
 ```
 
@@ -157,7 +153,7 @@ Ingest decides page by page whether to use the PDF's text or OCR. Results are ca
 
 ## Thai and scanned PDFs
 
-Some PDFs have no usable text: scanned pages, or Thai PDFs whose fonts don't map glyphs to real characters. The Thai standard used during development is one of these: its fonts have corrupt or missing character maps, so every PDF library extracts garbage from it. Ingest detects such pages and reads them with OCR instead. Without Tesseract, those pages are skipped and ingest tells you how many.
+Some PDFs have no usable text: scanned pages, or PDFs (often Thai ones) whose fonts have corrupt or missing character maps, so every PDF library extracts garbage from them. Ingest detects such pages and reads them with OCR instead. Without Tesseract, those pages are skipped and ingest tells you how many.
 
 ### Installing Tesseract and Poppler
 
@@ -200,13 +196,12 @@ The top-k pages are given to `gpt-4o-mini` as numbered context blocks, with inst
 ## Project structure
 
 ```text
-cyber_rag/
+pdf-rag/
 ├── dataset/                  # Your documents (not included in this repository)
 ├── scripts/
 │   ├── ingest.py             # Build the index
 │   ├── ask.py                # Command-line Q&A
 │   ├── api.py                # FastAPI app
-│   ├── evaluate.py           # Writes outputs/eval_report.md
 │   ├── extract.py            # PDF page text with automatic OCR fallback
 │   ├── thai.py               # Thai normalization and word segmentation
 │   ├── sources.py            # Which files get indexed; out-of-date index check
@@ -214,21 +209,12 @@ cyber_rag/
 │   ├── index.py              # TF-IDF index
 │   └── generator.py          # Constrained LLM answer + citations
 ├── tests/                    # Offline tests
-├── outputs/
-│   ├── index/                # Built by ingest (not included)
-│   ├── cache/                # Extracted / OCR'd page text (safe to delete)
-│   └── eval_report.md        # Latest evaluation answers
+├── outputs/                  # Created by ingest (not included)
+│   ├── index/                # The search index
+│   └── cache/                # Extracted / OCR'd page text (safe to delete)
 ├── create_txt_from_pdf.py    # OCR a whole PDF into an editable _ocr.txt
 └── requirements.txt
 ```
-
-## Evaluation
-
-```bash
-python -m scripts.evaluate
-```
-
-This asks 6 fixed questions (4 English, 2 Thai) and writes the answers and citations to [`outputs/eval_report.md`](outputs/eval_report.md).
 
 ## Tests
 
@@ -236,4 +222,4 @@ This asks 6 fixed questions (4 English, 2 Thai) and writes the answers and citat
 python -m pytest
 ```
 
-The tests run offline and need no API key. Tests that use the original dataset PDFs are skipped when those files aren't present.
+The tests run offline and need no API key or documents.

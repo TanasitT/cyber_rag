@@ -26,9 +26,9 @@ def test_mark_order_and_typing_errors():
 
 
 def test_tokenize_gives_real_thai_words():
-    tokens = tokenize("มาตรฐานการรักษาความมั่นคงปลอดภัยสำหรับเว็บไซต์คืออะไร")
-    assert {"มาตรฐาน", "ปลอดภัย", "เว็บไซต์"} <= set(tokens)
-    assert "บเว" not in tokens  # fragment produced by the old tokenizer
+    tokens = tokenize("นักเรียนสามารถดาวน์โหลดเอกสารจากเว็บไซต์ของมหาวิทยาลัย")
+    assert {"นักเรียน", "เอกสาร", "เว็บไซต์", "มหาวิทยาลัย"} <= set(tokens)
+    assert not {"บไซต", "ทยาล"} & set(tokens)  # fragments produced by the old tokenizer
 
 
 def test_tokenize_is_robust_to_ocr_quirks():
@@ -38,6 +38,6 @@ def test_tokenize_is_robust_to_ocr_quirks():
 
 
 def test_english_tokens_unchanged():
-    text = "Broken Access Control: violation of the principle of least privilege, e.g. CWE-200 (2021)."
+    text = "Quarterly revenue grew 12% year-over-year, e.g. in the Asia-Pacific region (Q3-2024)."
     default = TfidfVectorizer(lowercase=True, stop_words="english").build_analyzer()
     assert tokenize(text.lower()) == default(text)

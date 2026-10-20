@@ -1,30 +1,48 @@
-from pathlib import Path
-
 import pytest
 
 from scripts import extract
 from scripts.extract import OcrConfig, PageText, PdfPages, load_pdf_pages, looks_garbled, needs_ocr
 
-DATASET = Path(__file__).resolve().parents[1] / "dataset"
-OWASP = DATASET / "owasp-top-10.pdf"
-THAI_PDF = DATASET / "thailand-web-security-standard-2025.pdf"
-
-# Real samples from the dataset
-GARBLED_THAI = 'Nอ%@# ํ@N%>%@#!@!/##คห% @P  QหOห%N/"@%? #ํ@O&&อ#์!  ค`  O&&#@"@%#@"@#   #?P"?!Oอ\'#?&\'#B'
+# What a PDF with a broken font encoding yields as "text"
+GARBLED = 'Nอ%@# ํ@N%>%@#!@!/##คห% @P  QหOห%N/"@%? #ํ@O&&อ#์!  ค`  O&&#@"@%#@"@#   #?P"?!Oอ\'#?&\'#B'
 TOC = "Table of Contents\nIntroduction ...................................... 1\nBackground .................................... 3"
-THAI_OCR = "ก่อนการดำเนินการตามวรรคหนึ่ง ให้หน่วยงานจัดทำแบบฟอร์ม ค๒ แบบรายงานรายการที่ยังต้องปรับปรุง"
+THAI_TEXT = "ก่อนเริ่มดำเนินการ ให้หน่วยงานจัดทำแบบฟอร์มรายงานผลการดำเนินงานประจำปี"
+READABLE = "The committee met on Monday and approved the annual budget for the next financial year."
 
 
 def test_looks_garbled():
-    assert looks_garbled(GARBLED_THAI)
+    assert looks_garbled(GARBLED)
     assert looks_garbled("")
     assert not looks_garbled(TOC)
-    assert not looks_garbled(THAI_OCR)
+    assert not looks_garbled(THAI_TEXT)
 
 
 def test_needs_ocr_for_short_pages():
     assert needs_ocr("p. 3")
-    assert not needs_ocr(THAI_OCR)
+    assert not needs_ocr(THAI_TEXT)
+
+
+def fake_reader(monkeypatch, texts, encrypted=False, decrypts=True):
+    """Replaces PdfReader with one whose pages return the given texts (or raise, for exceptions)."""
+
+    class Page:
+        def __init__(self, text):
+            self.text = text
+
+        def extract_text(self):
+            if isinstance(self.text, Exception):
+                raise self.text
+            return self.text
+
+    class Reader:
+        def __init__(self, path):
+            self.pages = [Page(t) for t in texts]
+            self.is_encrypted = encrypted
+
+        def decrypt(self, password):
+            return 1 if decrypts else 0
+
+    monkeypatch.setattr(extract, "PdfReader", Reader)
 
 
 @pytest.fixture
@@ -39,32 +57,38 @@ def fake_ocr(monkeypatch):
     return calls
 
 
-@pytest.mark.skipif(not OWASP.exists(), reason="dataset PDF missing")
-def test_text_pdf_only_ocrs_near_empty_pages(fake_ocr):
-    result = extract.extract_pdf_pages(OWASP, OcrConfig())
-    assert fake_ocr == [6, 38]  # section divider pages with < 20 characters
-    assert len(result.pages) == 41 and not result.skipped
+PAGES = [READABLE, "", GARBLED, "Chapter 2"]  # readable, scanned, broken font, short heading
 
 
-@pytest.mark.skipif(not OWASP.exists(), reason="dataset PDF missing")
-def test_text_pdf_without_ocr_keeps_short_readable_pages():
-    result = extract.extract_pdf_pages(OWASP, None)
-    assert len(result.pages) == 41 and not result.skipped
+def test_ocr_only_for_pages_without_usable_text(monkeypatch, fake_ocr):
+    fake_reader(monkeypatch, PAGES)
+    result = extract.extract_pdf_pages("doc.pdf", OcrConfig())
+    assert fake_ocr == [2, 3, 4]
+    assert [(p.page, p.method) for p in result.pages] == [(1, "text"), (2, "ocr"), (3, "ocr"), (4, "ocr")]
 
 
-@pytest.mark.skipif(not THAI_PDF.exists(), reason="dataset PDF missing")
-def test_garbled_thai_pdf_uses_ocr(fake_ocr):
-    result = extract.extract_pdf_pages(THAI_PDF, OcrConfig())
-    text_pages = [p.page for p in result.pages if p.method == "text"]
-    assert text_pages == [73, 74, 76, 77]  # readable English bibliography pages
-    assert len(fake_ocr) == 73
+def test_without_ocr_unusable_pages_are_skipped(monkeypatch):
+    fake_reader(monkeypatch, PAGES)
+    result = extract.extract_pdf_pages("doc.pdf", None)
+    assert [p.page for p in result.pages] == [1, 4]  # short but readable heading is kept
+    assert result.skipped == [2, 3]
 
 
-@pytest.mark.skipif(not THAI_PDF.exists(), reason="dataset PDF missing")
-def test_garbled_pages_skipped_without_ocr():
-    result = extract.extract_pdf_pages(THAI_PDF, None)
-    assert len(result.skipped) == 73
-    assert [p.page for p in result.pages] == [73, 74, 76, 77]
+def test_page_that_fails_to_extract_needs_ocr(monkeypatch, fake_ocr):
+    fake_reader(monkeypatch, [RuntimeError("bad page")])
+    result = extract.extract_pdf_pages("doc.pdf", OcrConfig())
+    assert fake_ocr == [1] and result.pages[0].method == "ocr"
+
+
+def test_encrypted_pdf_needs_password(monkeypatch):
+    fake_reader(monkeypatch, [READABLE], encrypted=True, decrypts=False)
+    with pytest.raises(ValueError):
+        extract.extract_pdf_pages("doc.pdf", None)
+
+
+def test_text_layer_is_normalized(monkeypatch):
+    fake_reader(monkeypatch, ["รายงานผลการดําเนินงานประจําปีของหน่วยงาน"])  # split sara am
+    assert extract.extract_pdf_pages("doc.pdf", None).pages[0].text == "รายงานผลการดำเนินงานประจำปีของหน่วยงาน"
 
 
 @pytest.fixture

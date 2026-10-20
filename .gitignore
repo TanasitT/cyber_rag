@@ -8,16 +8,13 @@ __pycache__/
 .venv/
 venv/
 
-# Documents and anything built from them are not published
+# Documents and anything built from them (index, OCR cache) are not published
 dataset/*
 !dataset/.gitkeep
-outputs/index/
+outputs/
 
 # Backups written by create_txt_from_pdf.py
 *.bak
-
-# Local extraction / OCR cache
-outputs/cache/
 
 # Secrets
 .env

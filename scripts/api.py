@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Cybersecurity RAG (Dataset-Only)",
+    title="PDF RAG (Dataset-Only)",
     lifespan=lifespan,
 )
 
